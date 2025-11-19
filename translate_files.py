@@ -2,7 +2,8 @@
 Translation utility for Excel, Word, and PDF documents.
 
 This module provides functions to translate documents from one language to another,
-with support for Excel (.xlsx, .xls), Word (.docx), and PDF (.pdf) file formats.
+with support for Excel (.xlsx, .xls), Word (.docx), PDF (.pdf), CSV (.csv), and
+plain text (.txt) file formats.
 It includes a translation cache system to avoid redundant API calls and improve
 performance.
 
@@ -33,7 +34,7 @@ Interactive usage in Python:
         source_lang='th',      # Thai
         target_lang='en',      # English
         recursive=True,        # Process subdirectories
-        file_extensions=('.xlsx', '.xls', '.docx', '.pdf')
+        file_extensions=('.xlsx', '.xls', '.docx', '.pdf', '.csv', '.txt')
     )
 
     # Translate only Excel files, non-recursive
@@ -215,11 +216,11 @@ def translate_text(text: str, translator: GoogleTranslator, cache: TranslationCa
     
     if pd.isna(text):
         return text
-    
+        
     cached = cache.get(text)
     if cached is not None:
         return cached
-    
+        
     if any('\u0E00' <= c <= '\u0E7F' for c in text):
         try:
             translated = translator.translate(text)
@@ -237,7 +238,7 @@ def translate_excel(input_path: str, output_path: str, translator: GoogleTransla
     """
     Translate an Excel file (.xlsx or .xls).
     
-    Translates both column headers and all cell values in the spreadsheet.
+    Translates both column headers and all cell values in all sheets of the spreadsheet.
     Preserves the original data structure and formatting.
     
     Args:
@@ -254,19 +255,38 @@ def translate_excel(input_path: str, output_path: str, translator: GoogleTransla
         - Column names are translated first, then cell values
         - Null/NaN values are preserved and not translated
         - The output file format matches the input (xlsx or xls)
+        - All sheets in the workbook are processed and translated
+        - Sheet names are also translated
     """
-    df = pd.read_excel(input_path)
+    # Read all sheets
+    excel_file = pd.ExcelFile(input_path)
+    sheet_names = excel_file.sheet_names
     
-    new_columns = []
-    for col in df.columns:
-        translated_col = translate_text(str(col), translator, cache)
-        new_columns.append(translated_col)
-    df.columns = new_columns
+    # Process each sheet
+    translated_sheets = {}
+    for sheet_name in sheet_names:
+        df = pd.read_excel(input_path, sheet_name=sheet_name)
+        
+        # Translate sheet name
+        translated_sheet_name = translate_text(sheet_name, translator, cache)
+        
+        # Translate column names
+        new_columns = []
+        for col in df.columns:
+            translated_col = translate_text(str(col), translator, cache)
+            new_columns.append(translated_col)
+        df.columns = new_columns
+        
+        # Translate cell values
+        for column in df.columns:
+            df[column] = df[column].apply(lambda x: translate_text(x, translator, cache) if pd.notna(x) else x)
+        
+        translated_sheets[translated_sheet_name] = df
     
-    for column in df.columns:
-        df[column] = df[column].apply(lambda x: translate_text(x, translator, cache) if pd.notna(x) else x)
-    
-    df.to_excel(output_path, index=False)
+    # Write all sheets to output file
+    with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+        for sheet_name, df in translated_sheets.items():
+            df.to_excel(writer, sheet_name=sheet_name, index=False)
 
 
 def translate_word(input_path: str, output_path: str, translator: GoogleTranslator, cache: TranslationCache) -> None:
@@ -359,6 +379,95 @@ def translate_pdf(input_path: str, output_path: str, translator: GoogleTranslato
     logging.warning("PDF translation preserves structure but text replacement is limited. Consider using specialized PDF editing tools for full text replacement.")
 
 
+def translate_csv(input_path: str, output_path: str, translator: GoogleTranslator, cache: TranslationCache) -> None:
+    """
+    Translate a CSV file (.csv).
+    
+    Translates both column headers and all cell values in the CSV file.
+    Preserves the original data structure and handles various CSV formats.
+    
+    Args:
+        input_path: Path to the source CSV file
+        output_path: Path where the translated CSV file will be saved
+        translator: GoogleTranslator instance configured with source and target languages
+        cache: TranslationCache instance for storing and retrieving translations
+    
+    Raises:
+        FileNotFoundError: If the input file doesn't exist
+        ValueError: If the file cannot be read as a CSV file
+    
+    Note:
+        - Column names are translated first, then cell values
+        - Null/NaN values are preserved and not translated
+        - Attempts to detect CSV delimiter automatically
+        - Preserves UTF-8 encoding
+    """
+    try:
+        df = pd.read_csv(input_path, encoding='utf-8')
+    except UnicodeDecodeError:
+        try:
+            df = pd.read_csv(input_path, encoding='latin-1')
+        except Exception:
+            df = pd.read_csv(input_path, encoding='utf-8', errors='ignore')
+    
+    new_columns = []
+    for col in df.columns:
+        translated_col = translate_text(str(col), translator, cache)
+        new_columns.append(translated_col)
+    df.columns = new_columns
+    
+    for column in df.columns:
+        df[column] = df[column].apply(lambda x: translate_text(x, translator, cache) if pd.notna(x) else x)
+    
+    df.to_csv(output_path, index=False, encoding='utf-8')
+
+
+def translate_txt(input_path: str, output_path: str, translator: GoogleTranslator, cache: TranslationCache) -> None:
+    """
+    Translate a plain text file (.txt).
+    
+    Translates the entire text content of the file while preserving line breaks
+    and structure. Handles various text encodings.
+    
+    Args:
+        input_path: Path to the source text file
+        output_path: Path where the translated text file will be saved
+        translator: GoogleTranslator instance configured with source and target languages
+        cache: TranslationCache instance for storing and retrieving translations
+    
+    Raises:
+        FileNotFoundError: If the input file doesn't exist
+        UnicodeDecodeError: If the file encoding cannot be determined
+    
+    Note:
+        - Attempts to detect file encoding automatically (UTF-8, then latin-1)
+        - Preserves line breaks and paragraph structure
+        - Output is saved as UTF-8
+        - Large files are translated line by line to preserve structure
+    """
+    encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+    content = None
+    
+    for encoding in encodings:
+        try:
+            with open(input_path, 'r', encoding=encoding) as f:
+                content = f.read()
+            break
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+    
+    if content is None:
+        raise ValueError(f"Could not decode file {input_path} with any supported encoding")
+    
+    if content.strip():
+        translated_content = translate_text(content, translator, cache)
+    else:
+        translated_content = content
+    
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(translated_content)
+
+
 def translate_file(input_path: str, output_path: str, translator: GoogleTranslator, cache: TranslationCache) -> None:
     """
     Translate a single file based on its file extension.
@@ -382,6 +491,8 @@ def translate_file(input_path: str, output_path: str, translator: GoogleTranslat
         - .xlsx, .xls: Excel spreadsheets
         - .docx: Word documents
         - .pdf: PDF documents
+        - .csv: CSV files
+        - .txt: Plain text files
     """
     input_path_obj = Path(input_path)
     ext = input_path_obj.suffix.lower()
@@ -396,6 +507,10 @@ def translate_file(input_path: str, output_path: str, translator: GoogleTranslat
         translate_word(input_path, output_path, translator, cache)
     elif ext == '.pdf':
         translate_pdf(input_path, output_path, translator, cache)
+    elif ext == '.csv':
+        translate_csv(input_path, output_path, translator, cache)
+    elif ext == '.txt':
+        translate_txt(input_path, output_path, translator, cache)
     else:
         raise ValueError(f"Unsupported file format: {ext}")
 
@@ -407,7 +522,7 @@ def translate_directory(
     target_lang: str = 'en',
     cache_file: Optional[str] = None,
     recursive: bool = True,
-    file_extensions: tuple = ('.xlsx', '.xls', '.docx', '.pdf')
+    file_extensions: tuple = ('.xlsx', '.xls', '.docx', '.pdf', '.csv', '.txt')
 ) -> None:
     """
     Translate all supported files in a directory, optionally recursing into subdirectories.

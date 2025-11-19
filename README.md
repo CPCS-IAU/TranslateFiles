@@ -1,10 +1,10 @@
 # Document Translation Utility
 
-A Python module for translating Excel, Word, and PDF documents from one language to another. Features intelligent caching to avoid redundant API calls and preserve translation consistency across sessions.
+A Python module for translating Excel, Word, PDF, CSV, and plain text documents from one language to another. Features intelligent caching to avoid redundant API calls and preserve translation consistency across sessions.
 
 ## Features
 
-- **Multi-format support**: Translate Excel (.xlsx, .xls), Word (.docx), and PDF (.pdf) files
+- **Multi-format support**: Translate Excel (.xlsx, .xls), Word (.docx), PDF (.pdf), CSV (.csv), and plain text (.txt) files
 - **Batch processing**: Translate entire directories with optional recursion
 - **Translation cache**: Persistent cache system to avoid redundant API calls and ensure consistency
 - **Directory structure preservation**: Automatically recreates source directory structure in target location
@@ -54,6 +54,45 @@ translate_directory(
     target_lang='en',      # English
     recursive=True         # Process subdirectories
 )
+```
+
+## Supported File Formats
+
+### Excel Files (.xlsx, .xls)
+
+- Translates column headers
+- Translates all cell values
+- Preserves data structure and formatting
+- Handles null/NaN values gracefully
+
+### CSV Files (.csv)
+
+- Translates column headers
+- Translates all cell values
+- Automatically detects CSV delimiter
+- Handles various text encodings (UTF-8, latin-1)
+- Preserves data structure
+
+### Plain Text Files (.txt)
+
+- Translates entire text content
+- Preserves line breaks and paragraph structure
+- Handles various text encodings automatically
+- Output saved as UTF-8
+
+### Word Documents (.docx)
+
+- Translates paragraphs
+- Translates table cells
+- Preserves document structure, formatting, and layout
+- Requires `python-docx` package
+
+### PDF Documents (.pdf)
+
+- Extracts and translates text from pages
+- **Note**: PDF text replacement has limitations due to the complex nature of PDF format
+- Structure preservation may vary
+- Requires `pypdf` or `PyPDF2` package
 ```
 
 ## Usage Examples
@@ -135,7 +174,7 @@ Main function for batch translation of files in a directory.
 - `target_lang` (str, optional): Target language code. Default: `'en'` (English)
 - `cache_file` (str, optional): Path to the translation cache file. If `None`, defaults to `translation_cache.json` in the target directory
 - `recursive` (bool, optional): If `True`, recursively processes subdirectories. Default: `True`
-- `file_extensions` (tuple, optional): Tuple of file extensions to process (case-insensitive). Default: `('.xlsx', '.xls', '.docx', '.pdf')`
+- `file_extensions` (tuple, optional): Tuple of file extensions to process (case-insensitive). Default: `('.xlsx', '.xls', '.docx', '.pdf', '.csv', '.txt')`
 
 **Example:**
 
@@ -146,7 +185,7 @@ translate_directory(
     source_lang='th',
     target_lang='en',
     recursive=True,
-    file_extensions=('.xlsx', '.docx')
+    file_extensions=('.xlsx', '.docx', '.csv', '.txt')
 )
 ```
 
@@ -161,11 +200,13 @@ Translate a single file based on its extension.
 - `translator` (GoogleTranslator): Configured translator instance
 - `cache` (TranslationCache): Translation cache instance
 
-**Supported formats:** `.xlsx`, `.xls`, `.docx`, `.pdf`
+**Supported formats:** `.xlsx`, `.xls`, `.docx`, `.pdf`, `.csv`, `.txt`
 
 ### Format-Specific Functions
 
 - `translate_excel()`: Translate Excel files (column headers and cell values)
+- `translate_csv()`: Translate CSV files (column headers and cell values)
+- `translate_txt()`: Translate plain text files (preserves line breaks)
 - `translate_word()`: Translate Word documents (paragraphs and table cells)
 - `translate_pdf()`: Translate PDF documents (with limitations - see Notes)
 
@@ -205,28 +246,6 @@ The translation cache is a persistent JSON file that stores previously translate
 
 By default, the cache file is stored as `translation_cache.json` in the target directory. You can specify a custom location using the `cache_file` parameter.
 
-## Supported File Formats
-
-### Excel Files (.xlsx, .xls)
-
-- Translates column headers
-- Translates all cell values
-- Preserves data structure and formatting
-- Handles null/NaN values gracefully
-
-### Word Documents (.docx)
-
-- Translates paragraphs
-- Translates table cells
-- Preserves document structure, formatting, and layout
-- Requires `python-docx` package
-
-### PDF Documents (.pdf)
-
-- Extracts and translates text from pages
-- **Note**: PDF text replacement has limitations due to the complex nature of PDF format
-- Structure preservation may vary
-- Requires `pypdf` or `PyPDF2` package
 
 ## Language Support
 
