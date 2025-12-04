@@ -240,6 +240,45 @@ def translate_text(text: str, translator: GoogleTranslator, cache: TranslationCa
     return text
 
 
+def translate_dataframe_values(
+    df: pd.DataFrame,
+    translator: GoogleTranslator,
+    cache: TranslationCache
+) -> pd.DataFrame:
+    """
+    Translate all text values in a DataFrame using unique value extraction.
+    
+    Extracts unique text values across all cells, translates them once,
+    then maps translations back to original positions. This reduces function
+    call overhead for datasets with repeated values.
+    
+    Args:
+        df: DataFrame to translate (modified in place)
+        translator: GoogleTranslator instance configured with source and target languages
+        cache: TranslationCache instance for storing and retrieving translations
+    
+    Returns:
+        The translated DataFrame
+    """
+    # Collect unique text values across all columns
+    unique_texts: set[str] = set()
+    for column in df.columns:
+        for value in df[column].dropna().unique():
+            if isinstance(value, str) and value.strip():
+                unique_texts.add(value)
+    
+    # Translate each unique value once
+    translations: dict[str, str] = {}
+    for text in unique_texts:
+        translations[text] = translate_text(text, translator, cache)
+    
+    # Apply translations using vectorized mapping
+    for column in df.columns:
+        df[column] = df[column].map(lambda x: translations.get(x, x) if isinstance(x, str) else x)
+    
+    return df
+
+
 def translate_excel(input_path: str, output_path: str, translator: GoogleTranslator, cache: TranslationCache) -> None:
     """
     Translate an Excel file (.xlsx or .xls).
@@ -279,9 +318,8 @@ def translate_excel(input_path: str, output_path: str, translator: GoogleTransla
         # Translate sheet name
         translated_sheet_name = translate_text(sheet_name, translator, cache)
         
-        # Translate all cell values (including what would have been the header row)
-        for column in df.columns:
-            df[column] = df[column].apply(lambda x: translate_text(x, translator, cache) if pd.notna(x) else x)
+        # Translate all cell values using unique value extraction
+        df = translate_dataframe_values(df, translator, cache)
         
         translated_sheets[translated_sheet_name] = df
     
@@ -412,20 +450,15 @@ def translate_csv(input_path: str, output_path: str, translator: GoogleTranslato
         except Exception:
             df = pd.read_csv(input_path, encoding='utf-8', errors='ignore')
     
+    # Translate column headers separately
     new_columns = []
     for col in df.columns:
         translated_col = translate_text(str(col), translator, cache)
         new_columns.append(translated_col)
     df.columns = new_columns
     
-    def safe_translate_cell(x):
-        """Safely translate a single cell value, handling Series objects."""
-        if isinstance(x, pd.Series):
-            return x
-        return translate_text(x, translator, cache)
-    
-    for column in df.columns:
-        df[column] = df[column].apply(safe_translate_cell)
+    # Translate data cells using unique value extraction
+    df = translate_dataframe_values(df, translator, cache)
     
     df.to_csv(output_path, index=False, encoding='utf-8')
 
